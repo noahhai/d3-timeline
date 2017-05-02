@@ -51,6 +51,14 @@
         chartData = {}
       ;
 
+
+    function getClass(d){
+        if(d.hasOwnProperty('class'))
+          return 'timeline-label ' + d.class;
+        else
+          return 'timeline-label';
+      }
+
     var appendTimeAxis = function(g, xAxis, yPosition) {
 
       if(showAxisHeaderBackground){ appendAxisHeaderBackground(g, 0, 0); }
@@ -148,11 +156,17 @@
     var appendLabel = function (gParent, yAxisMapping, index, hasLabel, datum) {
       var fullItemHeight    = itemHeight + itemMargin;
       var rowsDown          = margin.top + (fullItemHeight/2) + fullItemHeight * (yAxisMapping[index] || 1);
-
+      var classGet = getClass(datum);
       gParent.append("text")
-        .attr("class", "timeline-label")
+        .attr("class", classGet)
         .attr("transform", "translate(" + labelMargin + "," + rowsDown + ")")
-        .text(hasLabel ? labelFunction(datum.label) : datum.id)
+        .html(function(){
+          if(!hasLabel)
+            return datum.id
+          if(datum.hasOwnProperty('secret_id'))
+                return "<a target='_blank' href='/secret_details/"+datum.secret_id+"''>&nbsp;&nbsp;"+datum.label+"</a>";
+          return "<a target='_blank' href='/user_details/"+datum.label+"''>"+datum.label+"</a>";
+        })
         .on("click", function (d, i) { click(d, index, datum); });
     };
 
@@ -239,6 +253,21 @@
         xAxis.ticks(tickFormat.numTicks || tickFormat.tickTime, tickFormat.tickInterval);
       }
 
+      var tip = d3.tip()
+      .attr('class', 'd3-tip')
+      .offset([-10, 0])
+      .html(function(d) {
+        text = '';
+        if(d.hasOwnProperty('tooltip_text'))
+            text = d.tooltip_text;
+        html =  "<span style='color:white'>" + text + "</span>";
+        if(!d.is_child)
+            html += "<span style='color:grey; font-style: italic;'> click to expand</span>"
+        return html;
+      });
+
+      g.call(tip);
+
       // draw the chart
       g.each(function(d, i) {
         chartData = d;
@@ -285,17 +314,27 @@
               hover(d, index, datum);
             })
             .on("mouseover", function (d, i) {
+              tip.show(d, i);
               mouseover(d, i, datum);
             })
             .on("mouseout", function (d, i) {
+              tip.hide(d, i);
               mouseout(d, i, datum);
             })
             .on("click", function (d, i) {
+              tip.hide(d,i);
               click(d, index, datum);
             })
             .attr("class", function (d, i) {
-              return datum.class ? "timelineSeries_"+datum.class : "timelineSeries_"+index;
+              return datum.class ? "timelineSeries "+datum.class : "timelineSeries";
             })
+            /*
+            .html(function(d,i){
+              if(d.hasOwnProperty('tooltip_text'))
+                return "<title>"+d.tooltip_text+"</title>";
+              return '';
+            })
+            */
             .attr("id", function(d, i) {
               // use deprecated id field
               if (datum.id && !d.id) {
@@ -332,7 +371,7 @@
 
           if (typeof(datum.icon) !== "undefined") {
             gParent.append("image")
-              .attr("class", "timeline-label")
+              .attr("class", getClass)
               .attr("transform", "translate("+ 0 +","+ (margin.top + (itemHeight + itemMargin) * yAxisMapping[index])+")")
               .attr("xlink:href", datum.icon)
               .attr("width", margin.left)
@@ -411,6 +450,7 @@
       function getXTextPos(d, i) {
         return margin.left + (d.starting_time - beginning) * scaleFactor + 5;
       }
+
 
       function setHeight() {
         if (!height && !gParentItem.attr("height")) {
