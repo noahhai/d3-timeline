@@ -1,4 +1,6 @@
 // vim: ts=2 sw=2
+//DO NOT UPDATE - changes by NH
+
 (function () {
   d3.timeline = function() {
     var DISPLAY_TYPES = ["circle", "rect"];
@@ -16,13 +18,13 @@
         height = null,
         rowSeparatorsColor = null,
         backgroundColor = null,
-        tickFormat = { format: d3.time.format("%I %p"),
-          tickTime: d3.time.hours,
+        tickFormat = { format: d3.timeFormat("%I %p"),
+          tickTime: d3.timeHour,
           tickInterval: 1,
           tickSize: 6,
           tickValues: null
         },
-        colorCycle = d3.scale.category20(),
+        colorCycle = d3.scaleOrdinal(d3.schemeCategory20),
         colorPropertyName = null,
         display = "rect",
         beginning = 0,
@@ -86,6 +88,7 @@
         .text(calendarLabel)
       ;
     };
+    
     var appendTimeAxisNav = function (g) {
       var timelineBlocks = 6;
       var leftNavMargin = (margin.left - navMargin);
@@ -142,8 +145,9 @@
 
     var appendBackgroundBar = function (yAxisMapping, index, g, data, datum) {
       var greenbarYAxis = ((itemHeight + itemMargin) * yAxisMapping[index]) + margin.top;
-      g.selectAll("svg").data(data).enter()
-        .insert("rect")
+      g.selectAll("svg")
+        .data(data).enter()
+        .insert("rect",":first-child")
         .attr("class", "row-green-bar")
         .attr("x", fullLengthBackgrounds ? 0 : margin.left)
         .attr("width", fullLengthBackgrounds ? width : (width - margin.right - margin.left))
@@ -167,14 +171,14 @@
                 return "<a target='_blank' href='/secret_details/"+datum.secret_id+"''>&nbsp;&nbsp;"+datum.label+"</a>";
           return "<a target='_blank' href='/user_details/"+datum.label+"''>"+datum.label+"</a>";
         })
-        .on("click", function (d, i) { click(d, index, datum); });
+        .on("click", function (d, i) { click(d, index, datum, i); });
     };
 
     function timeline (gParent) {
       var g = gParent.append("g");
-      var gParentSize = gParent[0][0].getBoundingClientRect();
+      var gParentSize = gParent.node().getBoundingClientRect();
 
-      var gParentItem = d3.select(gParent[0][0]);
+      var gParentItem = d3.select(gParent);
 
       var yAxisMapping = {},
         maxStack = 1,
@@ -237,20 +241,18 @@
       var scaleFactor = (1/(ending - beginning)) * (width - margin.left - margin.right);
 
       // draw the axis
-      var xScale = d3.time.scale()
+      var xScale = d3.scaleTime()
         .domain([beginning, ending])
         .range([margin.left, width - margin.right]);
 
-      var xAxis = d3.svg.axis()
-        .scale(xScale)
-        .orient(orient)
-        .tickFormat(tickFormat.format)
+      var xAxis = (orient == "bottom") ? d3.axisBottom(xScale) : d3.axisTop(xScale);
+        xAxis.tickFormat(tickFormat.format)
         .tickSize(tickFormat.tickSize);
 
       if (tickFormat.tickValues != null) {
         xAxis.tickValues(tickFormat.tickValues);
       } else {
-        xAxis.ticks(tickFormat.numTicks || tickFormat.tickTime, tickFormat.tickInterval);
+        xAxis.tickArguments(tickFormat.numTicks || [tickFormat.tickTime, tickFormat.tickInterval]);
       }
 
       var tip = d3.tip()
@@ -269,6 +271,7 @@
       g.call(tip);
 
       // draw the chart
+      var viewport = g.append("g").attr("class","viewport");
       g.each(function(d, i) {
         chartData = d;
         d.forEach( function(datum, index){
@@ -282,9 +285,9 @@
 
           if (backgroundColor) { appendBackgroundBar(yAxisMapping, index, g, data, datum); }
 
-          g.selectAll("svg").data(data).enter()
+          viewport.selectAll("svg").data(data).enter()
             .append(function(d, i) {
-                return document.createElementNS(d3.ns.prefix.svg, "display" in d? d.display:display);
+                return document.createElementNS(d3.namespaces.svg, "display" in d? d.display:display);
             })
             .attr("x", getXPos)
             .attr("y", getStackPosition)
@@ -311,19 +314,19 @@
               return colorCycle(index);
             })
             .on("mousemove", function (d, i) {
-              hover(d, index, datum);
+              hover(d, index, datum, i);
             })
             .on("mouseover", function (d, i) {
               tip.show(d, i);
-              mouseover(d, i, datum);
+              mouseover(d, i, datum, i);
             })
             .on("mouseout", function (d, i) {
               tip.hide(d, i);
-              mouseout(d, i, datum);
+              mouseout(d, i, datum, i);
             })
             .on("click", function (d, i) {
               tip.hide(d,i);
-              click(d, index, datum);
+              click(d, index, datum, i);
             })
             .attr("class", function (d, i) {
               return datum.class ? "timelineSeries "+datum.class : "timelineSeries";
@@ -345,7 +348,7 @@
             })
           ;
 
-          g.selectAll("svg").data(data).enter()
+          viewport.selectAll("svg").data(data).enter()
             .append("text")
             .attr("x", getXTextPos)
             .attr("y", getStackTextPosition)
@@ -399,15 +402,28 @@
       if (showTimeAxis) { appendTimeAxis(g, xAxis, timeAxisYPosition); }
       if (timeAxisTick) { appendTimeAxisTick(g, xAxis, maxStack); }
 
-      if (width > gParentSize.width) {
+      if (width > gParentSize.width) { // only if the scrolling should be allowed
         var move = function() {
-          var x = Math.min(0, Math.max(gParentSize.width - width, d3.event.translate[0]));
-          zoom.translate([x, 0]);
-          g.attr("transform", "translate(" + x + ",0)");
-          scroll(x*scaleFactor, xScale);
+           g.select(".viewport")
+             .attr("transform", "translate(" + d3.event.transform.x + ",0)"
+                              + "scale(" + d3.event.transform.k + " 1)"); 
+           // translate the x-axis together with the data
+           g.selectAll(".axis")
+             .attr("transform", 
+               function(d) { 
+                 return "translate(" + d3.event.transform.x + ", " + timeAxisYPosition + ")"
+                      + "scale(" + d3.event.transform.k + " 1)";
+                    }); 
+             new_xScale = d3.event.transform.rescaleX(xScale);                    
+           g.selectAll('.axis').call(function(d) {xAxis.scale(new_xScale);});
+             var xpos = -d3.event.transform.x;
+           scroll(xpos, xScale);
         };
 
-        var zoom = d3.behavior.zoom().x(xScale).on("zoom", move);
+        var zoom = d3.zoom()
+                       .scaleExtent([scaleFactor, 10]) // max zoom 10
+                       .translateExtent([[0, 0], [width, 0]]) // don't allow translating y-axis
+                       .on("zoom", move);
 
         gParent
           .attr("class", "scrollable")
@@ -423,7 +439,7 @@
           });
       }
 
-      var gSize = g[0][0].getBoundingClientRect();
+      var gSize = g.node().getBoundingClientRect();
       setHeight();
 
       if (showBorderLine) {
@@ -453,20 +469,20 @@
 
 
       function setHeight() {
-        if (!height && !gParentItem.attr("height")) {
+        if (!height && !gParentItem.height) {
           if (itemHeight) {
             // set height based off of item height
             height = gSize.height + gSize.top - gParentSize.top;
             // set bounding rectangle height
-            d3.select(gParent[0][0]).attr("height", height);
+            d3.select(gParent.node()).attr("height", height);
           } else {
             throw "height of the timeline is not set";
           }
         } else {
           if (!height) {
-            height = gParentItem.attr("height");
+            height = gParentItem.height;
           } else {
-            gParentItem.attr("height", height);
+            gParentItem.node().attr("height", height);
           }
         }
       }
@@ -474,16 +490,16 @@
       function setWidth() {
         if (!width && !gParentSize.width) {
           try {
-            width = gParentItem.attr("width");
+            width = gParentItem.node().attr("width");
             if (!width) {
               throw "width of the timeline is not set. As of Firefox 27, timeline().with(x) needs to be explicitly set in order to render";
             }
           } catch (err) {
             console.log( err );
           }
-        } else if (!(width && gParentSize.width)) {
+        } else if (!width && gParentSize.width) {
           try {
-            width = gParentItem.attr("width");
+            width = gParentSize.width;
           } catch (err) {
             console.log( err );
           }
